@@ -7,7 +7,7 @@ import { registerImage } from '../services/mediaHost.js';
 import { createPost } from '../services/buffer.js';
 import { preguntarModo, descargarArchivoTelegram, reportarError } from './shared.js';
 import { registerImageCommands, maybeHandlePhotoCommand } from './imageCommands.js';
-import { editImage as cloudflareEditImage } from '../services/cloudflare.js';
+import { editImage as cloudflareEditImage, cloudflareImagesEnabled } from '../services/cloudflare.js';
 
 const TIMEZONE_UTC_OFFSET = env.TIMEZONE_UTC_OFFSET || '-03:00';
 const PHOTO_BATCH_DEBOUNCE_MS = 1500;
@@ -230,7 +230,12 @@ async function finalizar(ctx, chatId) {
         });
         imagenesFinales.push(registerImage(buffer, mimeType));
       } catch (geminiErr) {
-        console.error('Gemini no pudo mejorar la imagen, pruebo con Cloudflare:', geminiErr.message);
+        console.error('Gemini no pudo mejorar la imagen:', geminiErr.message);
+        if (!cloudflareImagesEnabled()) {
+          mejoraFallo = true;
+          imagenesFinales.push(registerImage(original, img.mimeType));
+          continue;
+        }
         try {
           const { buffer, mimeType } = await cloudflareEditImage({
             prompt: modo.promptImagen,

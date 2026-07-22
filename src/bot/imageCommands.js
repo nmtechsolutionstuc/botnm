@@ -1,6 +1,6 @@
 import { Markup } from 'telegraf';
 import { getState, setState } from '../state/conversationStore.js';
-import { generateImage, editImage, enhanceQuality } from '../services/cloudflare.js';
+import { generateImage, editImage, enhanceQuality, cloudflareImagesEnabled } from '../services/cloudflare.js';
 import { checkLimit } from '../services/rateLimit.js';
 import { preguntarModo, descargarArchivoTelegram, reportarError } from './shared.js';
 
@@ -15,6 +15,10 @@ const MENSAJE_PROCESANDO = {
 
 export function registerImageCommands(bot) {
   bot.command('generar', async (ctx) => {
+    if (!cloudflareImagesEnabled()) {
+      await ctx.reply('La generación de imágenes con IA está desactivada por ahora.');
+      return;
+    }
     const prompt = ctx.message.text.replace(/^\/generar(@\S+)?\s*/, '').trim();
     if (!prompt) {
       await ctx.reply('Usalo así: /generar un gato futurista con lentes de sol');
@@ -60,6 +64,12 @@ export function registerImageCommands(bot) {
 /** Se llama desde el handler de fotos para interceptar "/editar" y "/mejorar" mandados como caption. */
 export async function maybeHandlePhotoCommand(ctx) {
   const caption = ctx.message.caption?.trim() ?? '';
+  const esComandoDeImagen = caption.startsWith('/editar') || caption.startsWith('/mejorar');
+
+  if (esComandoDeImagen && !cloudflareImagesEnabled()) {
+    await ctx.reply('La edición/mejora de imágenes con IA está desactivada por ahora.');
+    return true;
+  }
 
   if (caption.startsWith('/editar')) {
     const instrucciones = caption.replace(/^\/editar(@\S+)?\s*/, '').trim();
@@ -120,6 +130,11 @@ function validarFoto(ctx) {
 }
 
 async function procesarYMostrar(ctx, chatId, kind, datos) {
+  if (!cloudflareImagesEnabled()) {
+    await ctx.reply('La generación/edición de imágenes con IA está desactivada por ahora.');
+    return;
+  }
+
   const rate = checkLimit(ctx.from.id);
   if (!rate.permitido) {
     const minutos = Math.ceil(rate.esperarMs / 60_000);

@@ -1,7 +1,12 @@
-import { requireEnv } from '../config.js';
+import { env, requireEnv } from '../config.js';
 
 const IMAGE_MODEL = '@cf/black-forest-labs/flux-1-schnell';
 const EDIT_MODEL = '@cf/runwayml/stable-diffusion-v1-5-img2img';
+
+/** Permite apagar toda la función de imágenes de Cloudflare sin tocar código (CLOUDFLARE_IMAGES_ENABLED=false). */
+export function cloudflareImagesEnabled() {
+  return env.CLOUDFLARE_IMAGES_ENABLED !== 'false';
+}
 
 async function runWorkersAI(model, body) {
   const accountId = requireEnv('CLOUDFLARE_ACCOUNT_ID');
