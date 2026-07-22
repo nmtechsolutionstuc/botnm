@@ -10,7 +10,9 @@ function getClient() {
 }
 
 const IMAGE_MODEL = env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
-const TEXT_MODEL = env.GEMINI_TEXT_MODEL || 'gemini-2.5-flash';
+// "gemini-2.5-flash" quedó bloqueado para proyectos nuevos (404 "no longer available to new users").
+// Usamos el alias "-latest" para no depender de un nombre de versión puntual que Google puede retirar.
+const TEXT_MODEL = env.GEMINI_TEXT_MODEL || 'gemini-flash-latest';
 
 /**
  * Mejora/regenera una imagen a partir del prompt de estilo del modo.
