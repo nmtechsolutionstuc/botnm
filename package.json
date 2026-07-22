@@ -1,0 +1,20 @@
+{
+  "name": "makebufferbot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Bot de Telegram que arma borradores en Buffer usando Gemini, con modos configurables en Google Sheets.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "googleapis": "^144.0.0",
+    "telegraf": "^4.16.3"
+  }
+}
