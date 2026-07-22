@@ -38,7 +38,7 @@ export async function listChannels() {
   const organizationId = await getOrganizationId();
   const data = await bufferGraphQL(
     `
-    query GetChannels($organizationId: ID!) {
+    query GetChannels($organizationId: OrganizationId!) {
       channels(input: { organizationId: $organizationId }) {
         id
         name
@@ -62,7 +62,7 @@ export async function createPost({ channelId, text, imageUrls, dueAt }) {
     schedulingType: 'automatic',
     mode: dueAt ? 'customScheduled' : 'addToQueue',
     ...(dueAt ? { dueAt } : {}),
-    ...(imageUrls?.length ? { assets: imageUrls.map((url) => ({ type: 'image', url })) } : {}),
+    assets: (imageUrls ?? []).map((url) => ({ image: { url } })),
   };
 
   const data = await bufferGraphQL(
