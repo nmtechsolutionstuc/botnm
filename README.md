@@ -13,6 +13,14 @@ Bot de Telegram para MBDA Modas / Qué Pinta / IA / Productos Digitales. Reempla
 7. El bot te confirma por Telegram qué quedó listo.
 8. Entrás a Buffer, revisás y publicás cuando quieras.
 
+Además, hay 3 comandos sueltos que generan/editan una imagen con **Cloudflare Workers AI** y, si la confirmás, se suma como si fuera una foto más y sigue el mismo flujo (modo → texto → cuándo → Buffer):
+
+- `/generar una descripción` — genera una imagen nueva desde texto (ej: `/generar remera negra en fondo de estudio blanco`).
+- `/editar instrucciones` — mandado como **caption de una foto**, la edita según la instrucción (ej: foto + `/editar cambiale el fondo a un estudio blanco`).
+- `/mejorar` — mandado como caption de una foto, le pasa una pasada de nitidez con IA. **Aclaración:** no es un upscaler real de resolución (Cloudflare no tiene ese tipo de modelo en su catálogo); es una reinterpretación generativa con baja intensidad, pensada para afinar detalles, no para agrandar la imagen.
+
+Cada resultado se muestra con botones **✅ Usar esta / 🔁 Regenerar / ❌ Cancelar**. Además, si en el flujo normal elegís mejorar la imagen con Gemini y Gemini falla (por la falta de facturación mencionada abajo), el bot prueba automáticamente con Cloudflare antes de resignarse a usar la foto original.
+
 ## 2. Lo que ya está armado en este repo
 
 - `src/index.js` — arranca el servidor (`/health`, `/media/:id`) y el bot.
@@ -21,9 +29,13 @@ Bot de Telegram para MBDA Modas / Qué Pinta / IA / Productos Digitales. Reempla
 - `src/services/gemini.js` — mejora de imagen, generación de texto y transcripción de audio.
 - `src/services/buffer.js` — crea los posteos en Buffer (API GraphQL).
 - `src/services/mediaHost.js` — sirve temporalmente las imágenes generadas para que Buffer las pueda descargar (Buffer exige una URL pública, no acepta subir bytes directo).
+- `src/services/cloudflare.js` — generación y edición de imágenes con Cloudflare Workers AI.
+- `src/services/rateLimit.js` — límite de pedidos de imagen por usuario (protege la cuota gratis de Cloudflare).
+- `src/bot/imageCommands.js` — comandos `/generar`, `/editar`, `/mejorar` y sus botones de confirmación.
+- `src/bot/shared.js` — funciones compartidas entre `handlers.js` e `imageCommands.js`.
 - `src/state/conversationStore.js` — guarda en qué paso está cada conversación (`data/state.json`).
 
-Las 3 keys que ya pasaste (Telegram, Gemini, Buffer) están guardadas en `.env` (no se suben a git).
+Las keys que ya pasaste (Telegram, Gemini, Buffer) están guardadas en `.env` (no se suben a git). Falta la de Cloudflare (sección 3.5).
 
 ## 3. Lo que todavía tenés que hacer vos
 
@@ -67,6 +79,13 @@ npm run list-modos
 
 Tiene que imprimir el JSON con la fila `tienda` completa. Si da error, revisá `GOOGLE_SHEET_ID`, que hayas compartido la Sheet con el email de la cuenta de servicio, y que los headers de la fila 1 sean exactos.
 
+### 3.5 Cloudflare Workers AI (generación/edición de imágenes)
+
+1. Creá una cuenta gratis en [Cloudflare](https://dash.cloudflare.com/sign-up) si no tenés.
+2. Tu **Account ID** está en el dashboard de Cloudflare, en la barra lateral derecha de cualquier zona/dominio, o en `dash.cloudflare.com` → "Workers & Pages" → ahí aparece a la derecha. Pegalo en `.env` como `CLOUDFLARE_ACCOUNT_ID`.
+3. Creá un **API Token**: `dash.cloudflare.com/profile/api-tokens` → "Create Token" → permisos **Workers AI - Read** y **Workers AI - Edit**. Pegalo como `CLOUDFLARE_API_TOKEN`.
+4. Cloudflare Workers AI tiene una asignación gratis diaria (~10.000 "neurons"/día), suficiente para uso personal.
+
 ## 4. Correr el bot en tu máquina
 
 ```bash
@@ -99,5 +118,6 @@ Sin tocar código: agregá una fila nueva a la Google Sheet con su propio `promp
 | Google Sheets + Cloud service account | $0 | Ninguno |
 | Gemini API | $0 con límite diario | Ninguno si no cargás tarjeta en Google Cloud |
 | Buffer | $0 hasta 3 canales | Se paga solo si sumás más de 3 canales (~$5-6 USD/canal/mes) |
+| Cloudflare Workers AI | $0 con ~10.000 neurons/día | Ninguno si no cargás tarjeta ni superás la asignación gratis |
 
 Con 3 canales (ej. IG + TikTok + Facebook de la tienda) el sistema queda en $0 de punta a punta.

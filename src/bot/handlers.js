@@ -5,6 +5,9 @@ import { getModo, modosPermitidosParaUsuario } from '../services/sheets.js';
 import { enhanceImage, generateText, transcribeAudio, parseFechaHora } from '../services/gemini.js';
 import { registerImage } from '../services/mediaHost.js';
 import { createPost } from '../services/buffer.js';
+import { preguntarModo, descargarArchivoTelegram, reportarError } from './shared.js';
+import { registerImageCommands, maybeHandlePhotoCommand } from './imageCommands.js';
+import { editImage as cloudflareEditImage } from '../services/cloudflare.js';
 
 const TIMEZONE_UTC_OFFSET = env.TIMEZONE_UTC_OFFSET || '-03:00';
 const PHOTO_BATCH_DEBOUNCE_MS = 1500;
@@ -27,7 +30,11 @@ export function createBot() {
     );
   });
 
+  registerImageCommands(bot);
+
   bot.on('photo', async (ctx) => {
+    if (await maybeHandlePhotoCommand(ctx)) return;
+
     const modosPermitidos = await modosPermitidosParaUsuario(ctx.from.id).catch(() => []);
     if (modosPermitidos.length === 0) {
       await ctx.reply('No tenés modos habilitados para usar este bot todavía.');
@@ -166,13 +173,6 @@ export function createBot() {
   return bot;
 }
 
-async function preguntarModo(ctx, chatId) {
-  const modos = await modosPermitidosParaUsuario(ctx.from.id);
-  setState(chatId, { step: 'esperando_modo' });
-  const botones = modos.map((m) => Markup.button.callback(m.modo, `modo:${m.modo}`));
-  await ctx.reply('¿Qué modo es?', Markup.inlineKeyboard(botones, { columns: 2 }));
-}
-
 async function preguntarCuando(ctx) {
   await ctx.reply(
     '¿Cuándo lo publicamos?',
@@ -215,6 +215,7 @@ async function finalizar(ctx, chatId) {
 
     const imagenesFinales = [];
     let mejoraFallo = false;
+    let mejoradaConCloudflare = false;
     for (const img of state.images) {
       const original = await descargarArchivoTelegram(ctx, img.fileId);
       if (!state.mejorarImagen) {
@@ -228,10 +229,20 @@ async function finalizar(ctx, chatId) {
           mimeType: img.mimeType,
         });
         imagenesFinales.push(registerImage(buffer, mimeType));
-      } catch (err) {
-        console.error('Gemini no pudo mejorar la imagen, uso la original:', err.message);
-        mejoraFallo = true;
-        imagenesFinales.push(registerImage(original, img.mimeType));
+      } catch (geminiErr) {
+        console.error('Gemini no pudo mejorar la imagen, pruebo con Cloudflare:', geminiErr.message);
+        try {
+          const { buffer, mimeType } = await cloudflareEditImage({
+            prompt: modo.promptImagen,
+            imageBuffer: original,
+          });
+          imagenesFinales.push(registerImage(buffer, mimeType));
+          mejoradaConCloudflare = true;
+        } catch (cfErr) {
+          console.error('Cloudflare tampoco pudo mejorar la imagen, uso la original:', cfErr.message);
+          mejoraFallo = true;
+          imagenesFinales.push(registerImage(original, img.mimeType));
+        }
       }
     }
 
@@ -271,8 +282,10 @@ async function finalizar(ctx, chatId) {
 
     const cuando = state.dueAt ? `programado para ${state.dueAt}` : 'en la cola de revisión (ahora)';
     const avisoImagen = mejoraFallo
-      ? '\n⚠️ Gemini no pudo mejorar la imagen (falta facturación habilitada para el modelo de imagen), así que usé la foto original tal cual.'
-      : '';
+      ? '\n⚠️ Ni Gemini ni Cloudflare pudieron mejorar la imagen, así que usé la foto original tal cual.'
+      : mejoradaConCloudflare
+        ? '\nℹ️ Gemini no estaba disponible para la imagen, la mejoré con Cloudflare en su lugar.'
+        : '';
     await ctx.reply(
       `Listo, quedó ${cuando}:\n${resumen}${avisoImagen}\n\nEntrá a Buffer para revisar y publicar cuando quieras.`
     );
@@ -283,13 +296,6 @@ async function finalizar(ctx, chatId) {
   }
 }
 
-async function descargarArchivoTelegram(ctx, fileId) {
-  const url = await ctx.telegram.getFileLink(fileId);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`No pude descargar el archivo de Telegram (${res.status})`);
-  return Buffer.from(await res.arrayBuffer());
-}
-
 function parseFechaHoraLocal(texto) {
   const match = texto.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/);
   if (!match) return null;
@@ -298,9 +304,4 @@ function parseFechaHoraLocal(texto) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime()) || date.getTime() <= Date.now()) return null;
   return date.toISOString();
-}
-
-async function reportarError(ctx, err) {
-  console.error(err);
-  await ctx.reply(`Uh, algo falló: ${err.message}`);
 }
