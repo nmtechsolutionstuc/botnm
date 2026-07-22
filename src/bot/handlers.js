@@ -159,14 +159,21 @@ async function finalizar(ctx, chatId) {
     if (!modo) throw new Error(`El modo "${state.modo}" ya no existe en la planilla.`);
 
     const imagenesFinales = [];
+    let mejoraFallo = false;
     for (const img of state.images) {
       const original = await descargarArchivoTelegram(ctx, img.fileId);
-      const { buffer, mimeType } = await enhanceImage({
-        promptImagen: modo.promptImagen,
-        imageBuffer: original,
-        mimeType: img.mimeType,
-      });
-      imagenesFinales.push(registerImage(buffer, mimeType));
+      try {
+        const { buffer, mimeType } = await enhanceImage({
+          promptImagen: modo.promptImagen,
+          imageBuffer: original,
+          mimeType: img.mimeType,
+        });
+        imagenesFinales.push(registerImage(buffer, mimeType));
+      } catch (err) {
+        console.error('Gemini no pudo mejorar la imagen, uso la original:', err.message);
+        mejoraFallo = true;
+        imagenesFinales.push(registerImage(original, img.mimeType));
+      }
     }
 
     const texto = await generateText({
@@ -204,8 +211,11 @@ async function finalizar(ctx, chatId) {
       .join('\n');
 
     const cuando = state.dueAt ? `programado para ${state.dueAt}` : 'en la cola de revisión (ahora)';
+    const avisoImagen = mejoraFallo
+      ? '\n⚠️ Gemini no pudo mejorar la imagen (falta facturación habilitada para el modelo de imagen), así que usé la foto original tal cual.'
+      : '';
     await ctx.reply(
-      `Listo, quedó ${cuando}:\n${resumen}\n\nEntrá a Buffer para revisar y publicar cuando quieras.`
+      `Listo, quedó ${cuando}:\n${resumen}${avisoImagen}\n\nEntrá a Buffer para revisar y publicar cuando quieras.`
     );
   } catch (err) {
     await reportarError(ctx, err);
