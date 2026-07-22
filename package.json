@@ -8,10 +8,12 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "list-channels": "node scripts/list-buffer-channels.js",
+    "list-modos": "node scripts/list-modos.js"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
+    "@google/genai": "^2.13.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
     "googleapis": "^144.0.0",
