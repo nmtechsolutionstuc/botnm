@@ -92,3 +92,27 @@ export async function transcribeAudio({ audioBuffer, mimeType }) {
   });
   return response.text.trim();
 }
+
+/**
+ * Interpreta una fecha/hora escrita libremente ("dentro de 5 horas", "mañana a las 9", "25/12 20:00")
+ * y la convierte a ISO 8601 UTC. Devuelve null si no pudo interpretar una fecha futura válida.
+ * @param {{ texto: string, ahoraISO: string, timezoneOffset: string }} args
+ * @returns {Promise<string|null>}
+ */
+export async function parseFechaHora({ texto, ahoraISO, timezoneOffset }) {
+  const ai = getClient();
+  const prompt = [
+    `La fecha y hora actual es ${ahoraISO} (offset horario local: ${timezoneOffset}).`,
+    `El usuario quiere programar una publicación y escribió: "${texto}"`,
+    `Devolvé ÚNICAMENTE la fecha y hora resultante en formato ISO 8601 UTC (terminada en Z), sin texto adicional, sin explicaciones.`,
+    `Si no se puede interpretar una fecha/hora futura válida a partir de ese texto, devolvé exactamente: INVALIDO`,
+  ].join('\n');
+
+  const response = await ai.models.generateContent({ model: TEXT_MODEL, contents: prompt });
+  const raw = response.text.trim();
+  if (raw === 'INVALIDO') return null;
+
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime()) || date.getTime() <= Date.now()) return null;
+  return date.toISOString();
+}

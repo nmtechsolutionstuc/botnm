@@ -2,7 +2,7 @@ import { Telegraf, Markup } from 'telegraf';
 import { env, requireEnv } from '../config.js';
 import { getState, setState, clearState } from '../state/conversationStore.js';
 import { getModo, modosPermitidosParaUsuario } from '../services/sheets.js';
-import { enhanceImage, generateText, transcribeAudio } from '../services/gemini.js';
+import { enhanceImage, generateText, transcribeAudio, parseFechaHora } from '../services/gemini.js';
 import { registerImage } from '../services/mediaHost.js';
 import { createPost } from '../services/buffer.js';
 
@@ -64,8 +64,24 @@ export function createBot() {
       await ctx.reply('Ese modo no está habilitado para vos.');
       return;
     }
-    setState(chatId, { modo: modoNombre, step: 'esperando_contenido' });
-    await ctx.editMessageText(`Modo: ${modoNombre}. Ahora mandame el texto o un audio con la idea.`);
+    setState(chatId, { modo: modoNombre, step: 'esperando_mejora_imagen' });
+    await ctx.editMessageText(
+      `Modo: ${modoNombre}. ¿Querés que mejore la imagen con IA (Gemini)?`,
+      Markup.inlineKeyboard([
+        Markup.button.callback('Sí, mejorala', 'mejora:si'),
+        Markup.button.callback('No, dejala así', 'mejora:no'),
+      ])
+    );
+  });
+
+  bot.action(/^mejora:(si|no)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const chatId = ctx.chat.id;
+    const state = getState(chatId);
+    if (state?.step !== 'esperando_mejora_imagen') return;
+    const mejorarImagen = ctx.match[1] === 'si';
+    setState(chatId, { mejorarImagen, step: 'esperando_contenido' });
+    await ctx.editMessageText('Ahora mandame el texto o un audio con la idea.');
   });
 
   bot.on('voice', (ctx) => manejarAudio(ctx, ctx.message.voice.file_id, 'audio/ogg'));
@@ -83,9 +99,16 @@ export function createBot() {
     }
 
     if (state.step === 'esperando_fecha') {
-      const dueAt = parseFechaHoraLocal(ctx.message.text);
+      const dueAt = parseFechaHoraLocal(ctx.message.text) ?? (await parseFechaHora({
+        texto: ctx.message.text,
+        ahoraISO: new Date().toISOString(),
+        timezoneOffset: TIMEZONE_UTC_OFFSET,
+      }).catch(() => null));
+
       if (!dueAt) {
-        await ctx.reply('No entendí la fecha. Mandala en formato DD/MM/AAAA HH:mm, ej: 25/12/2026 14:30');
+        await ctx.reply(
+          'No entendí esa fecha. Probá algo como "en 2 horas", "mañana a las 10" o "25/12/2026 14:30".'
+        );
         return;
       }
       setState(chatId, { dueAt, step: 'procesando' });
@@ -104,8 +127,40 @@ export function createBot() {
   bot.action('cuando:programar', async (ctx) => {
     await ctx.answerCbQuery();
     const chatId = ctx.chat.id;
-    setState(chatId, { cuando: 'programar', step: 'esperando_fecha' });
-    await ctx.editMessageText('Mandame la fecha y hora en formato DD/MM/AAAA HH:mm (hora Argentina).');
+    setState(chatId, { cuando: 'programar' });
+    await ctx.editMessageText(
+      '¿Para cuándo?',
+      Markup.inlineKeyboard(
+        [
+          Markup.button.callback('En 5 min', 'rapido:5'),
+          Markup.button.callback('En 10 min', 'rapido:10'),
+          Markup.button.callback('En 30 min', 'rapido:30'),
+          Markup.button.callback('En 1 hora', 'rapido:60'),
+          Markup.button.callback('Personalizado', 'rapido:custom'),
+        ],
+        { columns: 2 }
+      )
+    );
+  });
+
+  bot.action(/^rapido:(\d+|custom)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const chatId = ctx.chat.id;
+    const valor = ctx.match[1];
+
+    if (valor === 'custom') {
+      setState(chatId, { step: 'esperando_fecha' });
+      await ctx.editMessageText(
+        'Escribime cuándo, como quieras: "en 3 horas", "mañana a las 9", "25/12/2026 14:30", etc.'
+      );
+      return;
+    }
+
+    const minutos = Number(valor);
+    const dueAt = new Date(Date.now() + minutos * 60_000).toISOString();
+    setState(chatId, { dueAt, step: 'procesando' });
+    await ctx.editMessageText(`Dale, lo programo para dentro de ${minutos} minutos.`);
+    await finalizar(ctx, chatId);
   });
 
   return bot;
@@ -162,6 +217,10 @@ async function finalizar(ctx, chatId) {
     let mejoraFallo = false;
     for (const img of state.images) {
       const original = await descargarArchivoTelegram(ctx, img.fileId);
+      if (!state.mejorarImagen) {
+        imagenesFinales.push(registerImage(original, img.mimeType));
+        continue;
+      }
       try {
         const { buffer, mimeType } = await enhanceImage({
           promptImagen: modo.promptImagen,
