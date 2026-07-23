@@ -13,8 +13,20 @@ const TIMEZONE_UTC_OFFSET = env.TIMEZONE_UTC_OFFSET || '-03:00';
 const PHOTO_BATCH_DEBOUNCE_MS = 1500;
 const pendingBatchTimers = new Map(); // chatId -> NodeJS.Timeout (no se persiste, vive en memoria)
 
+const ALLOWED_TELEGRAM_IDS = (env.BOT_ALLOWED_TELEGRAM_IDS || '')
+  .split(',')
+  .map((id) => id.trim())
+  .filter(Boolean);
+
 export function createBot() {
   const bot = new Telegraf(requireEnv('TELEGRAM_BOT_TOKEN'));
+
+  if (ALLOWED_TELEGRAM_IDS.length > 0) {
+    bot.use(async (ctx, next) => {
+      if (!ctx.from || !ALLOWED_TELEGRAM_IDS.includes(String(ctx.from.id))) return;
+      return next();
+    });
+  }
 
   bot.start(async (ctx) => {
     const modos = await modosPermitidosParaUsuario(ctx.from.id).catch(() => []);
